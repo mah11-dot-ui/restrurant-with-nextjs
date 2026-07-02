@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Box,
@@ -16,6 +16,8 @@ import {
   FormControl,
   FormLabel,
   Alert,
+  CircularProgress,
+  Button,
 } from '@mui/material';
 import CreditCardIcon from '@mui/icons-material/CreditCard';
 import AccountBalanceIcon from '@mui/icons-material/AccountBalance';
@@ -39,21 +41,84 @@ const checkoutSchema = z.object({
 type CheckoutFormData = z.infer<typeof checkoutSchema>;
 
 let stripePromise: Promise<Stripe | null> | null = null;
-function getStripePromise() {
-  if (typeof window === 'undefined') return null;
+function getStripe() {
   if (!stripePromise) {
     stripePromise = loadStripe(config.stripe.publishableKey);
   }
   return stripePromise;
 }
 
-function CheckoutForm() {
+function PaymentForm({
+  clientSecret,
+  total,
+  onBack,
+}: {
+  clientSecret: string;
+  total: number;
+  onBack: () => void;
+}) {
   const stripe = useStripe();
   const elements = useElements();
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handlePay = async () => {
+    if (!stripe || !elements) return;
+    setIsProcessing(true);
+
+    const { error: submitError } = await elements.submit();
+    if (submitError) {
+      setError(submitError.message || 'Payment failed');
+      setIsProcessing(false);
+      return;
+    }
+
+    const { error: payError } = await stripe.confirmPayment({
+      elements,
+      clientSecret,
+      confirmParams: { return_url: `${window.location.origin}/user/orders` },
+    });
+
+    if (payError) {
+      setError(payError.message || 'Payment failed');
+    }
+    setIsProcessing(false);
+  };
+
+  return (
+    <Box>
+      <Box sx={{ p: 3, bgcolor: 'grey.50', borderRadius: 2, mb: 2 }}>
+        <PaymentElement />
+      </Box>
+
+      {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+
+      <Box sx={{ display: 'flex', gap: 2 }}>
+        <LoadingButton
+          variant="contained"
+          size="large"
+          fullWidth
+          loading={isProcessing}
+          disabled={!stripe}
+          onClick={handlePay}
+        >
+          Pay {formatCurrency(total)}
+        </LoadingButton>
+        <Button variant="outlined" onClick={onBack} disabled={isProcessing}>
+          Change Method
+        </Button>
+      </Box>
+    </Box>
+  );
+}
+
+export default function StripeCheckoutForm() {
   const router = useRouter();
   const { items, subtotal, clearCart } = useCart();
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [clientSecret, setClientSecret] = useState<string | null>(null);
+  const [creatingPayment, setCreatingPayment] = useState(false);
 
   const deliveryFee = 5.99;
   const total = subtotal + deliveryFee;
@@ -65,72 +130,56 @@ function CheckoutForm() {
 
   const paymentMethod = watch('paymentMethod');
 
-  const onSubmit = async (data: CheckoutFormData) => {
-    if (data.paymentMethod === 'stripe') {
-      if (!stripe || !elements) return;
-      setIsProcessing(true);
-
-      const res = await fetch('/api/payments/create-intent', {
+  useEffect(() => {
+    if (paymentMethod === 'stripe' && !clientSecret && subtotal > 0) {
+      setCreatingPayment(true);
+      fetch('/api/payments/create-intent', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ amount: total }),
+      })
+        .then((r) => r.json())
+        .then((data) => {
+          if (data.success) setClientSecret(data.clientSecret);
+          else setError('Failed to initialize payment');
+        })
+        .catch(() => setError('Failed to initialize payment'))
+        .finally(() => setCreatingPayment(false));
+    }
+  }, [paymentMethod, clientSecret, subtotal, total]);
+
+  const onSubmitCash = async (data: CheckoutFormData) => {
+    setIsProcessing(true);
+    try {
+      const res = await fetch('/api/orders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          items: items.map((i) => ({
+            menuItem: i.menuItem._id,
+            name: i.menuItem.name,
+            price: i.menuItem.price,
+            quantity: i.quantity,
+            notes: i.notes,
+          })),
+          totalAmount: subtotal,
+          finalAmount: total,
+          paymentMethod: data.paymentMethod,
+          deliveryAddress: data.deliveryAddress,
+          notes: data.notes,
+        }),
       });
-      const paymentData = await res.json();
-
-      if (!paymentData.success) {
-        setError('Failed to initialize payment');
-        setIsProcessing(false);
-        return;
-      }
-
-      const { error: submitError } = await elements.submit();
-      if (submitError) {
-        setError(submitError.message || 'Payment failed');
-        setIsProcessing(false);
-        return;
-      }
-
-      const { error: payError } = await stripe.confirmPayment({
-        elements,
-        clientSecret: paymentData.clientSecret,
-        confirmParams: { return_url: `${window.location.origin}/user/orders` },
-      });
-
-      if (payError) setError(payError.message || 'Payment failed');
-      setIsProcessing(false);
-    } else {
-      setIsProcessing(true);
-      try {
-        const res = await fetch('/api/orders', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            items: items.map((i) => ({
-              menuItem: i.menuItem._id,
-              name: i.menuItem.name,
-              price: i.menuItem.price,
-              quantity: i.quantity,
-              notes: i.notes,
-            })),
-            totalAmount: subtotal,
-            finalAmount: total,
-            paymentMethod: data.paymentMethod,
-            deliveryAddress: data.deliveryAddress,
-            notes: data.notes,
-          }),
-        });
-        const result = await res.json();
-        if (result.success) {
-          clearCart();
-          router.push(ROUTES.USER_DASHBOARD);
-        } else {
-          setError('Failed to place order');
-        }
-      } catch {
+      const result = await res.json();
+      if (result.success) {
+        clearCart();
+        router.push(ROUTES.USER_DASHBOARD);
+      } else {
         setError('Failed to place order');
-      } finally {
-        setIsProcessing(false);
       }
+    } catch {
+      setError('Failed to place order');
+    } finally {
+      setIsProcessing(false);
     }
   };
 
@@ -143,7 +192,7 @@ function CheckoutForm() {
   }
 
   return (
-    <Box component="form" onSubmit={handleSubmit(onSubmit)}>
+    <Box>
       <Grid container spacing={4}>
         <Grid size={{ xs: 12, md: 7 }}>
           <Card>
@@ -207,8 +256,21 @@ function CheckoutForm() {
               </FormControl>
 
               {paymentMethod === 'stripe' && (
-                <Box sx={{ mt: 3, p: 2, bgcolor: 'grey.50', borderRadius: 2 }}>
-                  <PaymentElement />
+                <Box sx={{ mt: 2 }}>
+                  {creatingPayment && (
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, p: 3 }}>
+                      <CircularProgress size={24} />
+                      <Typography>Preparing payment...</Typography>
+                    </Box>
+                  )}
+                  {clientSecret && !creatingPayment && (
+                    <Elements stripe={getStripe()} options={{ clientSecret }}>
+                      <PaymentForm clientSecret={clientSecret} total={total} onBack={() => setClientSecret(null)} />
+                    </Elements>
+                  )}
+                  {error && !creatingPayment && !clientSecret && (
+                    <Alert severity="error" sx={{ mt: 2 }}>{error}</Alert>
+                  )}
                 </Box>
               )}
             </CardContent>
@@ -240,40 +302,24 @@ function CheckoutForm() {
                 <Typography variant="h6" color="secondary.main" sx={{ fontWeight: 700 }}>{formatCurrency(total)}</Typography>
               </Box>
 
-              {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
-
-              <LoadingButton
-                type="submit"
-                variant="contained"
-                size="large"
-                fullWidth
-                loading={isProcessing}
-                disabled={!stripe && paymentMethod === 'stripe'}
-              >
-                {paymentMethod === 'stripe' ? `Pay ${formatCurrency(total)}` : 'Place Order'}
-              </LoadingButton>
+              {paymentMethod === 'cash' && (
+                <>
+                  {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
+                  <LoadingButton
+                    variant="contained"
+                    size="large"
+                    fullWidth
+                    loading={isProcessing}
+                    onClick={handleSubmit(onSubmitCash)}
+                  >
+                    Place Order
+                  </LoadingButton>
+                </>
+              )}
             </CardContent>
           </Card>
         </Grid>
       </Grid>
     </Box>
-  );
-}
-
-export default function StripeCheckoutForm() {
-  const stripePromise = getStripePromise();
-
-  if (!stripePromise) {
-    return (
-      <Box sx={{ py: 4, textAlign: 'center' }}>
-        <Typography color="text.secondary">Loading payment options...</Typography>
-      </Box>
-    );
-  }
-
-  return (
-    <Elements stripe={stripePromise}>
-      <CheckoutForm />
-    </Elements>
   );
 }
