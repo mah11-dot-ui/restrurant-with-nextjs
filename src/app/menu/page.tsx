@@ -19,34 +19,15 @@ import {
 import SearchIcon from '@mui/icons-material/Search';
 import ShoppingCartAddIcon from '@mui/icons-material/ShoppingCart';
 import Link from 'next/link';
-
-interface Category {
-  _id: string;
-  name: string;
-  slug: string;
-}
-
-interface MenuItem {
-  _id: string;
-  name: string;
-  slug: string;
-  description: string;
-  price: number;
-  discountPrice?: number;
-  images: string[];
-  category: Category;
-  isAvailable: boolean;
-  isFeatured: boolean;
-  preparationTime: number;
-  rating: number;
-  totalReviews: number;
-}
+import { useCart } from '@/hooks/useCart';
+import { IMenuItem, ICategory } from '@/types/menu';
 
 export default function MenuPage() {
-  const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
-  const [categories, setCategories] = useState<Category[]>([]);
+  const [menuItems, setMenuItems] = useState<IMenuItem[]>([]);
+  const [categories, setCategories] = useState<ICategory[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string>('');
   const [search, setSearch] = useState('');
+  const { addItem } = useCart();
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -230,22 +211,16 @@ export default function MenuPage() {
                         <IconButton
                           color="primary"
                           size="small"
+                          onClick={() => addItem(item)}
                           sx={{ bgcolor: 'primary.main', color: 'white', '&:hover': { bgcolor: 'primary.dark' } }}
                         >
                           <ShoppingCartAddIcon />
                         </IconButton>
                         <Box sx={{ flex: 1 }}>
-                          <Link href={`/menu/${item.slug}`} passHref legacyBehavior>
+                          <Link href={`/menu/${item.slug}`} style={{ textDecoration: 'none' }}>
                             <Typography
-                              component="a"
                               variant="body2"
-                              sx={{
-                                display: 'inline-block',
-                                fontWeight: 600,
-                                color: 'primary.main',
-                                textDecoration: 'none',
-                                '&:hover': { textDecoration: 'underline' },
-                              }}
+                              sx={{ fontWeight: 600, color: 'primary.main', '&:hover': { textDecoration: 'underline' } }}
                             >
                               View Details
                             </Typography>
