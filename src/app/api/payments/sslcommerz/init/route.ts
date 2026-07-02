@@ -9,7 +9,7 @@ export async function POST(request: Request) {
   try {
     await connectDB();
     const body = await request.json();
-    const { userId, items, totalAmount, finalAmount, deliveryAddress, notes, customer } = body;
+    const { userId, items, totalAmount, finalAmount, deliveryAddress, notes, customer = {} } = body;
 
     const tranId = generateTransactionId();
 
@@ -35,13 +35,14 @@ export async function POST(request: Request) {
       fail_url: `${baseUrl}/payment/fail?tran_id=${tranId}`,
       cancel_url: `${baseUrl}/payment/cancel?tran_id=${tranId}`,
       ipn_url: `${baseUrl}/api/payments/sslcommerz/ipn`,
-      cus_name: customer.name,
-      cus_email: customer.email,
-      cus_phone: customer.phone || '01700000000',
+      cus_name: customer?.name || 'Guest',
+      cus_email: customer?.email || 'guest@example.com',
+      cus_phone: customer?.phone || '01700000000',
       cus_add1: deliveryAddress || 'N/A',
       cus_city: 'Dhaka',
       cus_country: 'Bangladesh',
       shipping_method: 'Courier',
+      ship_name: customer?.name || 'Guest',
       product_name: items.map((i: { name: string }) => i.name).join(', '),
       product_category: 'Food',
       product_profile: 'general',
@@ -67,9 +68,10 @@ export async function POST(request: Request) {
       { success: false, error: result.failedreason || 'SSLCommerz payment initiation failed' },
       { status: HTTP_STATUS.BAD_REQUEST }
     );
-  } catch {
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Failed to initiate SSLCommerz payment';
     return NextResponse.json(
-      { success: false, error: 'Failed to initiate SSLCommerz payment' },
+      { success: false, error: message },
       { status: HTTP_STATUS.INTERNAL_SERVER_ERROR }
     );
   }

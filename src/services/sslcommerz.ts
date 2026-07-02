@@ -1,4 +1,25 @@
+import SSLCommerz from 'sslcommerz-lts';
 import { config } from '@/config';
+
+let sslczInstance: SSLCommerz | null = null;
+
+function getSslcz(): SSLCommerz {
+  if (!sslczInstance) {
+    const storeId = config.sslcommerz.storeId;
+    const storePassword = config.sslcommerz.storePassword;
+    const isLive = config.sslcommerz.isLive;
+
+    if (!storeId || !storePassword) {
+      throw new Error(
+        'SSLCommerz store credentials not configured. ' +
+        'Set NEXT_PUBLIC_SSLCOMMERZ_STORE_ID and SSLCOMMERZ_STORE_PASSWORD in .env.local'
+      );
+    }
+
+    sslczInstance = new SSLCommerz(storeId, storePassword, isLive);
+  }
+  return sslczInstance;
+}
 
 interface SslCommerzInitData {
   total_amount: number;
@@ -15,56 +36,18 @@ interface SslCommerzInitData {
   cus_city: string;
   cus_country: string;
   shipping_method: string;
+  ship_name: string;
   product_name: string;
   product_category: string;
   product_profile: string;
 }
 
-interface SslCommerzResponse {
-  status: 'success' | 'fail';
-  GatewayPageURL?: string;
-  failedreason?: string;
-  sessionkey?: string;
-  tran_id?: string;
-}
-
-export async function initPayment(data: SslCommerzInitData): Promise<SslCommerzResponse> {
-  const storeId = config.sslcommerz.storeId;
-  const storePassword = config.sslcommerz.storePassword;
-  const isLive = config.sslcommerz.isLive;
-
-  const formData = new URLSearchParams();
-  formData.append('store_id', storeId);
-  formData.append('store_passwd', storePassword);
-  formData.append('total_amount', data.total_amount.toString());
-  formData.append('currency', data.currency);
-  formData.append('tran_id', data.tran_id);
-  formData.append('success_url', data.success_url);
-  formData.append('fail_url', data.fail_url);
-  formData.append('cancel_url', data.cancel_url);
-  formData.append('ipn_url', data.ipn_url);
-  formData.append('cus_name', data.cus_name);
-  formData.append('cus_email', data.cus_email);
-  formData.append('cus_phone', data.cus_phone);
-  formData.append('cus_add1', data.cus_add1);
-  formData.append('cus_city', data.cus_city);
-  formData.append('cus_country', data.cus_country);
-  formData.append('shipping_method', data.shipping_method);
-  formData.append('product_name', data.product_name);
-  formData.append('product_category', data.product_category);
-  formData.append('product_profile', data.product_profile);
-
-  const baseUrl = isLive
-    ? 'https://securepay.sslcommerz.com'
-    : 'https://sandbox.sslcommerz.com';
-
-  const res = await fetch(`${baseUrl}/gwprocess/v4/api.php`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: formData.toString(),
-  });
-
-  return res.json();
+export async function initPayment(
+  data: SslCommerzInitData
+): Promise<{ status: string; GatewayPageURL?: string; failedreason?: string }> {
+  const sslcz = getSslcz();
+  const result = await sslcz.init(data);
+  return result;
 }
 
 export function generateTransactionId(): string {
@@ -76,25 +59,7 @@ export function generateTransactionId(): string {
 export async function validatePayment(
   sessionKey: string
 ): Promise<{ status: boolean }> {
-  const storeId = config.sslcommerz.storeId;
-  const storePassword = config.sslcommerz.storePassword;
-  const isLive = config.sslcommerz.isLive;
-
-  const formData = new URLSearchParams();
-  formData.append('store_id', storeId);
-  formData.append('store_passwd', storePassword);
-  formData.append('sessionkey', sessionKey);
-
-  const baseUrl = isLive
-    ? 'https://securepay.sslcommerz.com'
-    : 'https://sandbox.sslcommerz.com';
-
-  const res = await fetch(`${baseUrl}/validator/api/validationserverAPI.php`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: formData.toString(),
-  });
-
-  const data = await res.json();
-  return { status: data.status === 'VALID' || data.status === 'VALIDATED' };
+  const sslcz = getSslcz();
+  const result = await sslcz.validate(sessionKey);
+  return { status: result?.status === 'VALID' || result?.status === 'VALIDATED' };
 }
