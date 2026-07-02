@@ -21,6 +21,7 @@ import {
 } from '@mui/material';
 import CreditCardIcon from '@mui/icons-material/CreditCard';
 import AccountBalanceIcon from '@mui/icons-material/AccountBalance';
+import PaymentIcon from '@mui/icons-material/Payment';
 import { Elements, PaymentElement, useStripe, useElements } from '@stripe/react-stripe-js';
 import { loadStripe, Stripe } from '@stripe/stripe-js';
 import { useForm, Controller } from 'react-hook-form';
@@ -33,9 +34,12 @@ import { config } from '@/config';
 import { ROUTES } from '@/constants';
 
 const checkoutSchema = z.object({
+  customerName: z.string().min(2, 'Name is required'),
+  customerEmail: z.string().email('Invalid email'),
+  customerPhone: z.string().min(10, 'Valid phone number is required'),
   deliveryAddress: z.string().min(5, 'Please enter a valid address'),
   notes: z.string().optional(),
-  paymentMethod: z.enum(['stripe', 'cash']),
+  paymentMethod: z.enum(['stripe', 'sslcommerz', 'cash']),
 });
 
 type CheckoutFormData = z.infer<typeof checkoutSchema>;
@@ -125,7 +129,7 @@ export default function StripeCheckoutForm() {
 
   const { control, handleSubmit, watch } = useForm<CheckoutFormData>({
     resolver: zodResolver(checkoutSchema),
-    defaultValues: { deliveryAddress: '', notes: '', paymentMethod: 'stripe' },
+    defaultValues: { customerName: '', customerEmail: '', customerPhone: '', deliveryAddress: '', notes: '', paymentMethod: 'stripe' },
   });
 
   const paymentMethod = watch('paymentMethod');
@@ -147,6 +151,45 @@ export default function StripeCheckoutForm() {
         .finally(() => setCreatingPayment(false));
     }
   }, [paymentMethod, clientSecret, subtotal, total]);
+
+  const onSubmitSslCommerz = async (data: CheckoutFormData) => {
+    setIsProcessing(true);
+    try {
+      const res = await fetch('/api/payments/sslcommerz/init', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: null,
+          items: items.map((i) => ({
+            menuItem: i.menuItem._id,
+            name: i.menuItem.name,
+            price: i.menuItem.price,
+            quantity: i.quantity,
+            notes: i.notes,
+          })),
+          totalAmount: subtotal,
+          finalAmount: total,
+          deliveryAddress: data.deliveryAddress,
+          notes: data.notes,
+          customer: {
+            name: data.customerName || 'Guest',
+            email: data.customerEmail || 'guest@example.com',
+            phone: data.customerPhone || '',
+          },
+        }),
+      });
+      const result = await res.json();
+      if (result.success && result.gatewayUrl) {
+        window.location.href = result.gatewayUrl;
+      } else {
+        setError(result.error || 'Failed to initiate SSLCommerz payment');
+      }
+    } catch {
+      setError('Failed to initiate payment');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
 
   const onSubmitCash = async (data: CheckoutFormData) => {
     setIsProcessing(true);
@@ -198,25 +241,47 @@ export default function StripeCheckoutForm() {
           <Card>
             <CardContent sx={{ p: 3 }}>
               <Typography variant="h6" sx={{ fontWeight: 600, mb: 3 }}>
-                Delivery Details
+                Customer Details
               </Typography>
 
-              <Controller
-                name="deliveryAddress"
-                control={control}
-                render={({ field, fieldState }) => (
-                  <TextField
-                    {...field}
-                    label="Delivery Address"
-                    multiline
-                    rows={3}
-                    error={!!fieldState.error}
-                    helperText={fieldState.error?.message}
-                    fullWidth
-                    sx={{ mb: 2 }}
+              <Grid container spacing={2} sx={{ mb: 3 }}>
+                <Grid size={{ xs: 12, sm: 6 }}>
+                  <Controller
+                    name="customerName"
+                    control={control}
+                    render={({ field, fieldState }) => (
+                      <TextField {...field} label="Full Name" error={!!fieldState.error} helperText={fieldState.error?.message} fullWidth />
+                    )}
                   />
-                )}
-              />
+                </Grid>
+                <Grid size={{ xs: 12, sm: 6 }}>
+                  <Controller
+                    name="customerEmail"
+                    control={control}
+                    render={({ field, fieldState }) => (
+                      <TextField {...field} label="Email" type="email" error={!!fieldState.error} helperText={fieldState.error?.message} fullWidth />
+                    )}
+                  />
+                </Grid>
+                <Grid size={{ xs: 12, sm: 6 }}>
+                  <Controller
+                    name="customerPhone"
+                    control={control}
+                    render={({ field, fieldState }) => (
+                      <TextField {...field} label="Phone" error={!!fieldState.error} helperText={fieldState.error?.message} fullWidth />
+                    )}
+                  />
+                </Grid>
+                <Grid size={{ xs: 12, sm: 6 }}>
+                  <Controller
+                    name="deliveryAddress"
+                    control={control}
+                    render={({ field, fieldState }) => (
+                      <TextField {...field} label="Delivery Address" error={!!fieldState.error} helperText={fieldState.error?.message} fullWidth />
+                    )}
+                  />
+                </Grid>
+              </Grid>
 
               <Controller
                 name="notes"
@@ -243,12 +308,17 @@ export default function StripeCheckoutForm() {
                       <FormControlLabel
                         value="stripe"
                         control={<Radio />}
-                        label={<Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}><CreditCardIcon /> Card Payment</Box>}
+                        label={<Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}><CreditCardIcon /> Card</Box>}
+                      />
+                      <FormControlLabel
+                        value="sslcommerz"
+                        control={<Radio />}
+                        label={<Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}><PaymentIcon /> SSLCommerz</Box>}
                       />
                       <FormControlLabel
                         value="cash"
                         control={<Radio />}
-                        label={<Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}><AccountBalanceIcon /> Cash on Delivery</Box>}
+                        label={<Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}><AccountBalanceIcon /> Cash</Box>}
                       />
                     </RadioGroup>
                   )}
@@ -302,7 +372,7 @@ export default function StripeCheckoutForm() {
                 <Typography variant="h6" color="secondary.main" sx={{ fontWeight: 700 }}>{formatCurrency(total)}</Typography>
               </Box>
 
-              {paymentMethod === 'cash' && (
+              {(paymentMethod === 'sslcommerz' || paymentMethod === 'cash') && (
                 <>
                   {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
                   <LoadingButton
@@ -310,9 +380,10 @@ export default function StripeCheckoutForm() {
                     size="large"
                     fullWidth
                     loading={isProcessing}
-                    onClick={handleSubmit(onSubmitCash)}
+                    onClick={handleSubmit(paymentMethod === 'sslcommerz' ? onSubmitSslCommerz : onSubmitCash)}
+                    startIcon={paymentMethod === 'sslcommerz' ? <PaymentIcon /> : undefined}
                   >
-                    Place Order
+                    {paymentMethod === 'sslcommerz' ? `Pay ${formatCurrency(total)} (SSLCommerz)` : 'Place Order (Cash)'}
                   </LoadingButton>
                 </>
               )}
