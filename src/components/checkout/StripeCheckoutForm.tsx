@@ -28,6 +28,7 @@ import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { LoadingButton } from '@/components/ui/LoadingButton';
+import { useAuth } from '@/context/AuthContext';
 import { useCart } from '@/hooks/useCart';
 import { formatCurrency } from '@/lib/utils';
 import { config } from '@/config';
@@ -118,6 +119,7 @@ function PaymentForm({
 
 export default function StripeCheckoutForm() {
   const router = useRouter();
+  const { user } = useAuth();
   const { items, subtotal, clearCart } = useCart();
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -159,7 +161,7 @@ export default function StripeCheckoutForm() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          userId: null,
+          userId: user?._id || null,
           items: items.map((i) => ({
             menuItem: i.menuItem._id,
             name: i.menuItem.name,
@@ -198,6 +200,7 @@ export default function StripeCheckoutForm() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          userId: user?._id || null,
           items: items.map((i) => ({
             menuItem: i.menuItem._id,
             name: i.menuItem.name,
