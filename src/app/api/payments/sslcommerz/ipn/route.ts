@@ -5,8 +5,15 @@ import { Order } from '@/app/api/models/Order';
 export async function POST(request: Request) {
   try {
     await connectDB();
-    const formData = await request.formData();
-    const data = Object.fromEntries(formData);
+
+    const contentType = request.headers.get('content-type') || '';
+    let data: Record<string, unknown>;
+    if (contentType.includes('json')) {
+      data = await request.json();
+    } else {
+      const formData = await request.formData();
+      data = Object.fromEntries(formData);
+    }
 
     const tranId = data.tran_id as string;
     const status = data.status as string;

@@ -2,7 +2,7 @@ export const config = {
   app: {
     name: 'Savory Bites',
     description: 'Premium dining experience delivered to your door',
-    url: process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000',
+    url: (process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000').replace(/\/+$/, ''),
   },
 
   firebase: {

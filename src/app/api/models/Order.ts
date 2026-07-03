@@ -1,7 +1,7 @@
 import mongoose, { Schema, Document } from 'mongoose';
 
 export interface OrderDocument extends Document {
-  user: mongoose.Types.ObjectId;
+  user: string;
   items: Array<{
     menuItem: mongoose.Types.ObjectId;
     name: string;
@@ -35,7 +35,7 @@ const OrderItemSchema = new Schema(
 
 const OrderSchema = new Schema<OrderDocument>(
   {
-    user: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+    user: { type: String, required: true, index: true },
     items: [OrderItemSchema],
     totalAmount: { type: Number, required: true },
     discountAmount: { type: Number, default: 0 },

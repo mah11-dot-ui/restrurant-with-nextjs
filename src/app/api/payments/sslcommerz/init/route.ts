@@ -43,7 +43,7 @@ export async function POST(request: Request) {
       cus_country: 'Bangladesh',
       shipping_method: 'Courier',
       ship_name: customer?.name || 'Guest',
-      product_name: items.map((i: { name: string }) => i.name).join(', '),
+      product_name: Array.isArray(items) ? items.map((i: { name: string }) => i.name).join(', ') : 'Food Items',
       product_category: 'Food',
       product_profile: 'general',
     };
